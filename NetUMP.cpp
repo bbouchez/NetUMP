@@ -2,7 +2,7 @@
  *  NetUMP.cpp
  *  Generic class for NetUMP session initiator/listener
  *
- * Copyright (c) 2023 Benoit BOUCHEZ / KissBox
+ * Copyright (c) 2023-2025 Benoit BOUCHEZ / KissBox
  * License : MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -41,6 +41,11 @@
 12/09/2024
   - update to V0.8.1 protocol version
   - removed DataSize parameter in the callback (UMP size is given by MT field)
+
+03/02/2025
+  - merged changes made by oscaracena (https://github.com/oscaracena) - Branch 664cb0d
+	- added callback function for session events
+  - added initialization of PeerEndpointNameSize in RunSession() to mute a compiler warning (variable maybe uninitialized)
 */
 
 #include "NetUMP.h"
@@ -186,6 +191,9 @@ void CNetUMPHandler::CloseSession (void)
 		SessionState=SESSION_CLOSED;
 		SendBYECommand(BYE_USER_TERMINATED, SessionPartnerIP, SessionPartnerPort);
 		SystemSleepMillis(50);		// Give time to send the message before closing the socket
+
+		if (DisconnectCallback != 0)
+			DisconnectCallback();
 	}
 }  // CNetUMPHandler::CloseSession
 //---------------------------------------------------------------------------
@@ -217,6 +225,8 @@ void CNetUMPHandler::RunSession (void)
 	TUMP_PING_PACKET_NO_SIGNATURE* PingPacket;
 	int PtrParse;
 	unsigned int PayloadSize;
+	int PeerEndpointNamePtr = 0;
+	unsigned int PeerEndpointNameSize = 0;
 
 	// Do not process if communication layers are not ready
 	if (SocketLocked) return;
@@ -256,8 +266,12 @@ void CNetUMPHandler::RunSession (void)
 			{  // If we are not session initiator, just wait to be invited again
 				SessionState=SESSION_WAIT_INVITE;
 			}
-		}
-	}
+
+			// Inform client application that we have closed connection
+			if (DisconnectCallback != 0)
+				DisconnectCallback();
+		}  // Session has timed out
+	}  // Session is opened
 
 	// Init state decoder
 	InvitationReceived = false;
@@ -317,11 +331,16 @@ void CNetUMPHandler::RunSession (void)
 							break;
 						case INVITATION_COMMAND :
 							InvitationReceived = true;
+							// Size is given in 32-bit words, convert it into bytes
+							PeerEndpointNameSize = ReceptionBuffer[PtrParse + 2] * 4;
+							PeerEndpointNamePtr = PtrParse + 4;
 							break;
 						case BYE_COMMAND :
 							BYEReceived = true;
 							break;
 						case INVITATION_ACCEPTED_COMMAND :
+							PeerEndpointNameSize = ReceptionBuffer[PtrParse + 2] * 4;
+							PeerEndpointNamePtr = PtrParse + 4;
 							InvitationAccepted = true;
 							break;
 						case PING_COMMAND :
@@ -376,13 +395,16 @@ void CNetUMPHandler::RunSession (void)
 				this->SessionPartnerPort = SenderPort;
 				SendInvitationAcceptedCommand ();
 				ResetFECMemory();
+
+				if (ConnectionCallback != 0)
+					ConnectionCallback((const char*)(ReceptionBuffer + PeerEndpointNamePtr), PeerEndpointNameSize);
 			}
 		}
 		else
 		{  // Session initiator : for now, we don't accept to be invited (TODO : we can acccept an invitation if it comes from the declared partner)
 			SendBYECommand (BYE_TOO_MANY_SESSIONS, SenderIP, SenderPort);
 		}
-	}
+	}  // Invitation received
 
 	if (PingReceived)
 	{
@@ -407,12 +429,15 @@ void CNetUMPHandler::RunSession (void)
 				RestartSessionInitiator ();		// This make the driver automatically invite again a partner which has sent a BYE
 			}
 			ConnectionLost = true;		// This will report information to user interface
+
+			if (DisconnectCallback != 0)
+				DisconnectCallback();
 		}
 		else
 		{
 			SendBYEReplyCommand (SenderIP, SenderPort);
 		}
-	}
+	}  // Bye received
 
 	// *** State machine manager ***
 	if (SessionState==SESSION_CLOSED)
@@ -456,6 +481,9 @@ void CNetUMPHandler::RunSession (void)
 			SessionPartnerIP = SenderIP;		// TODO : what happens if we receive accidentally an INVITATION ACCEPTED from another device while we are inviting one ?
 			SessionState=SESSION_OPENED;
 			ResetFECMemory();
+
+			if (ConnectionCallback != 0)
+				ConnectionCallback((const char*)(ReceptionBuffer + PeerEndpointNamePtr), PeerEndpointNameSize);
 			return;
 		}
 
@@ -481,7 +509,7 @@ void CNetUMPHandler::RunSession (void)
 		}
 		//else {  /* We wait for an event : nothing to do */ }
 		return;
-	}
+	}  // Session state is SESSION_INVITE
 
 	if (SessionState==SESSION_WAIT_INVITE)
 	{
@@ -822,4 +850,16 @@ void CNetUMPHandler::SetCallback(TUMPDataCallback CallbackFunc, void* UserInstan
 	// Restore lock state
 	this->SocketLocked = SocketState;
 }  // CNetUMPHandler::SetCallback
+//--------------------------------------------------------------------------
+
+void CNetUMPHandler::SetConnectionCallback(void(*CallbackFunc)(const char* EndpointName, unsigned int Size))
+{
+	this->ConnectionCallback = CallbackFunc;
+}  // CNetUMPHandler::SetConnectionCallback
+//--------------------------------------------------------------------------
+
+void CNetUMPHandler::SetDisconnectCallback(void(*CallbackFunc)())
+{
+	this->DisconnectCallback = CallbackFunc;
+}  // CNetUMPHandler::SetDisconnectCallback
 //--------------------------------------------------------------------------

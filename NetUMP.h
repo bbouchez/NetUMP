@@ -2,7 +2,7 @@
  *  NetUMP.h
  *  Generic class for NetUMP session initiator/listener
  *
- * Copyright (c) 2023 Benoit BOUCHEZ / KissBox
+ * Copyright (c) 2023-2025 Benoit BOUCHEZ / KissBox
  * License : MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -249,6 +249,12 @@ public:
 	//! Declares callback and instance parameter for the callback
 	void SetCallback(TUMPDataCallback CallbackFunc, void* UserInstance);
 
+	//! Declares callback for connection event
+	void SetConnectionCallback(void(*CallbackFunc)(const char* EndpointName, unsigned int size));
+
+	//! Declares callback for disconnection event
+	void SetDisconnectCallback(void(*CallbackFunc)());
+
 private:
 	// Callback data
 	TUMPDataCallback UMPCallback;	// Callback for incoming RTP-MIDI message
@@ -291,6 +297,9 @@ private:
 	unsigned int NextFECSlot;						// Pointer for the round-robin FEC
 	unsigned int ErrorCorrectionMode;				// See ERROR_CORRECTION_XXX consts
 	uint16_t ReceivedSequenceCounters[NUM_FEC_ENTRIES];				// List of the last received counters to detect incoming packet loss
+
+	void(*ConnectionCallback)(const char* EndpointName, unsigned int size);
+	void(*DisconnectCallback)();
 
 	//! Release UDP sockets used by the handler
 	void CloseSockets(void);
