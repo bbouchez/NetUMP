@@ -155,21 +155,21 @@ int CNetUMPHandler::InitiateSession(unsigned int DestIP,
 	// Close the UDP socket, just in case it was still opened...
 	CloseSockets();
 
-	RemoteIP=DestIP;
-	RemoteUDPPort=DestPort;
-	LocalUDPPort = LocalPort;
+	this->RemoteIP=DestIP;
+	this->RemoteUDPPort=DestPort;
+	this->LocalUDPPort = LocalPort;
 
 	SocketOK=CreateUDPSocket (&UMPSocket, LocalPort, false);
 	if (SocketOK == false) return -1;
 
 	ConnectionLost = false;
-	InviteCount=0;
-	TimeOutRemote=TIMEOUT_RESET;
-	UMPSequenceCounter = 0;
-	PINGDelayCounter = 0;
-	TimerRunning = false;
+	this->InviteCount=0;
+	this->TimeOutRemote=TIMEOUT_RESET;
+	this->UMPSequenceCounter = 0;
+	this->PINGDelayCounter = 0;
+	this->TimerRunning = false;
 
-	IsInitiatorNode=IsInitiator;
+	this->IsInitiatorNode=IsInitiator;
 	if (IsInitiator==false)
 	{  // Do not invite, wait from remote node to start session
 		SessionState=SESSION_WAIT_INVITE;
@@ -180,7 +180,7 @@ int CNetUMPHandler::InitiateSession(unsigned int DestIP,
         SessionPartnerIP = RemoteIP;
 		SessionPartnerPort = RemoteUDPPort;
 	}
-	SocketLocked=false;		// Must be last instruction after session initialization
+	this->SocketLocked=false;		// Must be last instruction after session initialization
 	PrepareTimerEvent(1);	// This will produce invitation immediately
 
 	return 0;
@@ -845,7 +845,7 @@ void CNetUMPHandler::SetCallback(TUMPDataCallback CallbackFunc, void* UserInstan
 {
 	bool SocketState = this->SocketLocked;
 
-	this->SocketLocked = false;		// Block processing to avoid callbacks while we configure them
+	this->SocketLocked = true;		// Block processing to avoid callbacks while we configure them
 
 	this->ClientInstance = UserInstance;
 	this->UMPCallback = CallbackFunc;
