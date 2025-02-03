@@ -108,6 +108,9 @@ CNetUMPHandler::CNetUMPHandler (TUMPDataCallback CallbackFunc, void* UserInstanc
 
 	UMPCallback=CallbackFunc;
 	ClientInstance=UserInstance;
+
+	ConnectionCallback = 0;
+	DisconnectCallback = 0;
 }  // CNetUMPHandler::CNetUMPHandler
 // -----------------------------------------------------
 
