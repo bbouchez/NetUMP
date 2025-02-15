@@ -46,6 +46,9 @@
   - merged changes made by oscaracena (https://github.com/oscaracena) - Branch 664cb0d
 	- added callback function for session events
   - added initialization of PeerEndpointNameSize in RunSession() to mute a compiler warning (variable maybe uninitialized)
+
+15/02/2025
+  - removed unused private member variable (UMP_FIFO_FROM_NET)
 */
 
 #include "NetUMP.h"
@@ -97,8 +100,6 @@ CNetUMPHandler::CNetUMPHandler (TUMPDataCallback CallbackFunc, void* UserInstanc
 	// Reset FIFO with host
 	UMP_FIFO_TO_NET.ReadPtr = 0;
 	UMP_FIFO_TO_NET.WritePtr = 0;
-	UMP_FIFO_FROM_NET.ReadPtr = 0;
-	UMP_FIFO_FROM_NET.WritePtr = 0;
 
 	// Reset timer
 	TimeCounter=0;

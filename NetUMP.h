@@ -260,7 +260,6 @@ private:
 	TUMPDataCallback UMPCallback;	// Callback for incoming RTP-MIDI message
 	void* ClientInstance;
 	TUMP_FIFO UMP_FIFO_TO_NET;
-	TUMP_FIFO UMP_FIFO_FROM_NET;
 
 	unsigned char EndpointName [MAX_UMP_ENDPOINT_NAME_LEN];
 	unsigned char ProductInstanceID[MAX_UMP_PRODUCT_INSTANCE_ID_LEN];
