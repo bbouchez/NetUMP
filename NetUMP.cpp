@@ -49,6 +49,9 @@
 
 15/02/2025
   - removed unused private member variable (UMP_FIFO_FROM_NET)
+ 
+21/02/2025
+  - added missing #include <string.h> in NetUMP.h
 */
 
 #include "NetUMP.h"
@@ -323,14 +326,16 @@ void CNetUMPHandler::RunSession (void)
 							if (htonl(SenderData.sin_addr.s_addr) == SessionPartnerIP)
 	#endif
 							{
-								if (htons(SenderData.sin_port) == SessionPartnerPort)
-								{
+								// 08/02/2025 : BEB - condition removed to allow remote partner to respond from any other port number
+								// The destination port for the UDP packet is enough as a condition
+								//if (htons(SenderData.sin_port) == SessionPartnerPort)
+								//{
 									if (SessionState == SESSION_OPENED)
 									{
 										TimeOutRemote = TIMEOUT_RESET;
 										ProcessIncomingUMP(&ReceptionBuffer[PtrParse]);
 									}
-								}
+								//}
 							}
 							break;
 						case INVITATION_COMMAND :
