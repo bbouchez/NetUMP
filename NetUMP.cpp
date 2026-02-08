@@ -52,6 +52,9 @@
  
 21/02/2025
   - added missing #include <string.h> in NetUMP.h
+
+08/02/2026
+  - removed test in RunSession() to verify the source UDP port of the UMP packet to allow devices using a different socket/port to send UMP
 */
 
 #include "NetUMP.h"
@@ -422,7 +425,13 @@ void CNetUMPHandler::RunSession (void)
 
 	if (BYEReceived)
 	{
-		if ((SenderIP == SessionPartnerIP)&&(SenderPort == SessionPartnerPort))
+		// Make sure we get a BYE from communication partner, not a different machine
+
+		// 02/02/2026 - BEB
+		// Removed the test on the sender UDP port as it conflicts with devices using different sockets for transmission
+		//if ((SenderIP == SessionPartnerIP)&&(SenderPort == SessionPartnerPort))
+
+		if (SenderIP == SessionPartnerIP)
 		{
 			SendBYEReplyCommand (SessionPartnerIP, SessionPartnerPort);
 			if (IsInitiatorNode == false)
