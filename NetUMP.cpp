@@ -563,7 +563,8 @@ int CNetUMPHandler::GetSessionStatus (void)
 	if (SessionState==SESSION_CLOSED) return 0;
 	if (SessionState==SESSION_OPENED) return 3;
 	if (SessionState==SESSION_INVITE) return 1;
-	return 2;
+	if (SessionState == SESSION_WAIT_INVITE) return 2;
+	return 4;
 }  // CNetUMPHandler::::GetSessionStatus
 //--------------------------------------------------------------------------
 
