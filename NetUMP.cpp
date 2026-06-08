@@ -55,6 +55,9 @@
 
 08/02/2026
   - removed test in RunSession() to verify the source UDP port of the UMP packet to allow devices using a different socket/port to send UMP
+
+31/05/2026
+  - added method to identify last error and allow client to adapt behavior (like when invitation is refused)
 */
 
 #include "NetUMP.h"
@@ -237,6 +240,7 @@ void CNetUMPHandler::RunSession (void)
 	unsigned int PayloadSize;
 	int PeerEndpointNamePtr = 0;
 	unsigned int PeerEndpointNameSize = 0;
+	uint8_t BYEReason;
 
 	// Do not process if communication layers are not ready
 	if (SocketLocked) return;
@@ -348,6 +352,7 @@ void CNetUMPHandler::RunSession (void)
 							PeerEndpointNamePtr = PtrParse + 4;
 							break;
 						case BYE_COMMAND :
+							BYEReason = ReceptionBuffer[PtrParse + 2];
 							BYEReceived = true;
 							break;
 						case INVITATION_ACCEPTED_COMMAND :
@@ -452,7 +457,7 @@ void CNetUMPHandler::RunSession (void)
 				DisconnectCallback();
 		}
 		else
-		{
+		{  // We have to reply to a BYE even if it is not for us (but no action taken here)
 			SendBYEReplyCommand (SenderIP, SenderPort);
 		}
 	}  // Bye received

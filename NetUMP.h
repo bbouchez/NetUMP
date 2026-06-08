@@ -29,6 +29,7 @@
 #define __NETUMP_H__
 
 #include "network.h"
+#include <string.h>
 #ifdef __TARGET_WIN__
 #include <stdint.h>
 #endif
@@ -254,6 +255,9 @@ public:
 
 	//! Declares callback for disconnection event
 	void SetDisconnectCallback(void(*CallbackFunc)());
+
+	//! Returns last error code
+	int GetLastError(void);
 
 private:
 	// Callback data
