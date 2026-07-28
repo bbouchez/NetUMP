@@ -1,9 +1,9 @@
 /*
  *  UMP_Transcoder.c
  *  Functions to convert UMP <-> MIDI 1.0
- *  @050125
+ *  @280726
  *
- * Copyright (c) 2022 - 2024 Benoit BOUCHEZ / KissBox
+ * Copyright (c) 2022 - 2026 Benoit BOUCHEZ / KissBox
  * License : MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -28,8 +28,12 @@
 
 /* 
 Release notes 
-050125
+05/01/25
 	- Bug corrected in TranscodeSYSEX_UMP() : function never returns 0 when last packet is generated
+
+28/07/2026
+	- Modified bitmask for MIDI 1.0 data fields to 0x7F rather 0xFF (in case UMP packets are corrupted)
+	- Added capability to decode MIDI 2.0 -> MIDI 1.0 in TranscodeUMP_MIDI1()
 */
 
 #include "UMP_Transcoder.h"
@@ -183,6 +187,7 @@ unsigned int TranscodeUMP_MIDI1 (uint32_t* SourceUMP, uint8_t* MIDIMsg)
 {
 	uint8_t Status, Data1, Data2;
 	unsigned int SYSEXLen;
+	uint32_t Value14;
 
 	// if MT=1, we have realtime MIDI 1.0 message
 	if ((SourceUMP[0]&0xF0000000)==0x10000000)
@@ -190,14 +195,14 @@ unsigned int TranscodeUMP_MIDI1 (uint32_t* SourceUMP, uint8_t* MIDIMsg)
 		if ((SourceUMP[0]&0xFF0000)==0xF20000)
 		{  // Three bytes message
 			MIDIMsg[0] = 0xF2;
-			MIDIMsg[1] = (SourceUMP[0]>>8)&0xFF;
-			MIDIMsg[2] = SourceUMP[0]&0xFF;
+			MIDIMsg[1] = (SourceUMP[0]>>8)&0x7F;
+			MIDIMsg[2] = SourceUMP[0]&0x7F;
 			return 3;
 		}
 		else if (((SourceUMP[0]&0xFF0000)==0xF10000) || ((SourceUMP[0]&0xFF0000)==0xF30000))
 		{  // Two bytes MIDI message
 			MIDIMsg[0] = (SourceUMP[0]>>16)&0xFF;
-			MIDIMsg[1] = (SourceUMP[0]>>8)&0xFF;
+			MIDIMsg[1] = (SourceUMP[0]>>8)&0x7F;
 			return 2;
 		}
 		else
@@ -211,8 +216,8 @@ unsigned int TranscodeUMP_MIDI1 (uint32_t* SourceUMP, uint8_t* MIDIMsg)
 	if ((SourceUMP[0]&0xF0000000)==0x20000000)
 	{
 		Status = (SourceUMP[0]>>16)&0xFF;
-		Data1 = (SourceUMP[0]>>8)&0xFF;
-		Data2 = SourceUMP[0]&0xFF;
+		Data1 = (SourceUMP[0]>>8)&0x7F;
+		Data2 = SourceUMP[0]&0x7F;
 
 		if ((Status>=0x80)&&(Status<=0xBF))
 		{
@@ -235,6 +240,155 @@ unsigned int TranscodeUMP_MIDI1 (uint32_t* SourceUMP, uint8_t* MIDIMsg)
 			return 3;
 		}
 		return 0;		// This should normally never happen
+	}
+
+	// if MT=4, we have a MIDI 2.0 channel message
+	// Try to convert it to MIDI 1.0 using MMA rules (see UMP specification Appendix D.2)
+	if ((SourceUMP[0]&0xF0000000)==0x40000000)
+	{
+		Status = (SourceUMP[0]>>16)&0xFF;
+		Data1 = (SourceUMP[0]>>8)&0x7F;
+
+		// MIDI 2.0 Note Off
+		if ((Status>=0x80)&&(Status<=0x8F))
+		{  // Direct translation to MIDI 1.0 Note Off
+			Data2 = SourceUMP[1]>>25;
+
+			MIDIMsg[0] = Status;
+			MIDIMsg[1] = Data1;
+			MIDIMsg[2] = Data2;
+
+			return 3;
+		}
+
+		// MIDI 2.0 Note On
+		if ((Status>=0x90)&&(Status<=0x9F))
+		{  // Special case to handle : if velocity is 0 after shifting, it must be set to 1 (otherwise MIDI 1.0 considers it as Note Off)
+
+			Data2 = SourceUMP[1]>>25;
+			if (Data2==0)
+				Data2 = 1;
+
+			MIDIMsg[0] = Status;
+			MIDIMsg[1] = Data1;
+			MIDIMsg[2] = Data2;
+
+			return 3;				
+		}
+
+		// MIDI 2.0 Polypressure / Control Change
+		if ((Status>=0xA0)&&(Status<=0xBF))
+		{  // Direct translation to MIDI 1.0
+			Data2 = SourceUMP[1]>>25;
+
+			MIDIMsg[0] = Status;
+			MIDIMsg[1] = Data1;
+			MIDIMsg[2] = Data2;
+
+			return 3;
+		}
+
+		// MIDI 2.0 Channel pressure
+		if ((Status>=0xD0)&&(Status<=0xDF))
+		{  // Direct translation to MIDI 1.0
+			Data2 = SourceUMP[1]>>25;
+
+			MIDIMsg[0] = Status;
+			MIDIMsg[1] = Data2;
+
+			return 2;
+		}
+
+		// MIDI 2.0 Pitch Bend
+		if ((Status>=0xE0)&&(Status<=0xEF))
+		{	// Translate 32-bit bend resolution to 14-bit
+			Value14 = SourceUMP[1]>>18;
+
+			// On MIDI 1.0, pitch bend is LSB MSB, so we swap
+			MIDIMsg[0] = Status;
+			MIDIMsg[1] = Value14&0x7F;	// LSB
+			MIDIMsg[2] = (Value14>>7)&0x7F;		// MSB
+
+			return 3;
+		}		
+
+		// MIDI 2.0 Program Change
+		if ((Status>=0xC0)&&(Status<=0xCF))
+		{
+			if ((SourceUMP[0]&1)==0)
+			{  // B bit is not set : only generate a MIDI 1.0 Program Change
+				Data2 = (SourceUMP[1]>>24)&0x7F;
+
+				MIDIMsg[0] = Status;
+				MIDIMsg[1] = Data2;
+
+				return 2;
+			}
+			else
+			{  // B bit is set : we have to generate three MIDI 1.0 messages : Bank Select MSB, Bank Select LSB, Program Change
+				// MIDI Bank Select MSB message
+				MIDIMsg[0] = 0xB0 + (Status&0xF);		// Control Change + copy the channel from original message
+				MIDIMsg[1] = 0;		// Bank Select MSB
+				MIDIMsg[2] = (SourceUMP[1]>>8)&0x7F;
+
+				MIDIMsg[3] = 0xB0 + (Status&0xF);		// Control Change + copy the channel from original message
+				MIDIMsg[4] = 32;	// Bank Select LSB
+				MIDIMsg[5] = SourceUMP[1] & 0x7F;
+
+				MIDIMsg[6] = Status;		// Program Change
+				MIDIMsg[7] = (SourceUMP[1]>>24)&0x7F;
+				
+				return 8;
+			}
+		}
+
+		// MIDI 2.0 RPN Controller
+		if ((Status>=0x20)&&(Status<=0x2F))
+		{
+			MIDIMsg[0] = 0xB0 + (Status&0xF);		// Control Change + copy the channel from original message
+			MIDIMsg[1] = 101;
+			MIDIMsg[2] = (SourceUMP[0]>>8)&0x7F;
+
+			MIDIMsg[3] = MIDIMsg[0];
+			MIDIMsg[4] = 100;
+			MIDIMsg[5] = SourceUMP[0]&0x7F;
+
+			Value14 = SourceUMP[1]>>18;
+			MIDIMsg[6] = MIDIMsg[0];
+			MIDIMsg[7] = 6;
+			MIDIMsg[8] = Value14>>7;
+
+			MIDIMsg[9] = MIDIMsg[0];
+			MIDIMsg[10] = 38;
+			MIDIMsg[11] = Value14&0x7F;
+
+			return 12;
+		}
+
+		// MIDI 2.0 NRPN Controller
+		if ((Status>=0x30)&&(Status<=0x3F))
+		{
+			MIDIMsg[0] = 0xB0 + (Status&0xF);		// Control Change + copy the channel from original message
+			MIDIMsg[1] = 99;
+			MIDIMsg[2] = (SourceUMP[0]>>8)&0x7F;
+
+			MIDIMsg[3] = 0xB0 + (Status&0xF);		// Control Change + copy the channel from original message
+			MIDIMsg[4] = 98;
+			MIDIMsg[5] = SourceUMP[0]&0x7F;
+
+			Value14 = SourceUMP[1]>>18;
+			MIDIMsg[6] = MIDIMsg[0];
+			MIDIMsg[7] = 6;
+			MIDIMsg[8] = Value14>>7;
+
+			MIDIMsg[9] = MIDIMsg[0];
+			MIDIMsg[10] = 38;
+			MIDIMsg[11] = Value14&0x7F;
+
+			return 12;
+		}
+
+		return 0;		// MIDI 2.0 message can not be translated to MIDI 1.0
 	}
 	
 	// Single 7-bit SYSEX packet

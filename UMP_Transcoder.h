@@ -1,9 +1,9 @@
 /*
  *  UMP_Transcoder.h
  *  Functions to convert UMP <-> MIDI 1.0
- *  @231224
+ *  @280726
  *
- * Copyright (c) 2022 - 2024 Benoit BOUCHEZ / KissBox
+ * Copyright (c) 2022 - 2026 Benoit BOUCHEZ / KissBox
  * License : MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -60,8 +60,10 @@ unsigned char TranscodeMIDI1_UMP (uint8_t* MIDIBytes, unsigned int MIDI1Length, 
 unsigned char TranscodeSYSEX_UMP(uint8_t* MIDIBytes, unsigned int MIDI1Length, unsigned int* PtrSYSEX, uint32_t* UMPMessage);
 
 //! Transform UMP message into MIDI 1.0 equivalent
-//! \param MIDIMsg array of bytes to receive the MIDI 1.0 message from UMP. Array MUST be at least 8 bytes long, as this function decodes MT=3 Single SYSEX packet (8 bytes SYSEX)
-//! \return number of bytes in the MIDI message
+//! If the UMP message is MIDI 2.0, the function tries to convert it to MIDI 1.0 equivalent using MMA rules from UMP
+//! \param MIDIMsg array of bytes to receive the MIDI 1.0 message from UMP. 
+//! MIDIMsg array MUST be at least 12 bytes long, as this function decodes MT=3 Single SYSEX packet or can generate multiple MIDI messages from MIDI 2.0
+//! \return number of bytes in the MIDI message(s)
 unsigned int TranscodeUMP_MIDI1 (uint32_t* SourceUMP, uint8_t* MIDIMsg);
 
 //! Process UMP MT=3 packet to rebuild MIDI 1.0 SYSEX 
