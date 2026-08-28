@@ -1,7 +1,7 @@
 # NetUMP
-Cross-platform Network UMP session initiator/listener endpoint class
+Cross-platform Network MIDI 2.0 session initiator/listener endpoint class
 
-This library is a cross-platform (Linux, MacOS, Windows) implementation of Network UMP (aka "MIDI 2.0 over Ethernet") endpoint. The library performs session management, packet generation and reception. The endpoint can be set as a session initiator or as a session listener
+This library is a cross-platform (Linux, MacOS, Windows) implementation of Network MIDI 2.0 (aka "MIDI 2.0 over Ethernet") endpoint. The library performs session management, packet generation and reception. The endpoint can be set as a session initiator or as a session listener
 
 **The library requires the host to implement a realtime/high priority thread which must call the _RunSession()_ method every millisecond.** On Windows machine, this can be achieved using a Multimedia Timer, with time resolution set to 1ms. On Linux and MacOS, a CThread instance (see BEBSDK below) can be used (this is also an alternative to the Multimedia Timers on Windows)
 
