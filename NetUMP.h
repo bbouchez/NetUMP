@@ -241,6 +241,11 @@ public:
 	//! The flag is reset after this method has been called (so the method returns true only one time)
 	bool RemotePeerClosedSession (void);
 
+	//! Returns 0 or positive value if remote participant has sent a BYE to close the session. -1 indicates that no BYE packet has been received
+	// Note that BYE Reason code 0 (undefined / unknown) returns 1. For BYE Reason codes, see MMA Network MIDI 2.0 specification table 27
+	//! The flag is reset after this method has been called (so the method returns a non-null only one time)
+	int RemotePeerClosedSessionReason(void);
+
 	//! Put a next message to be sent in the transmission queue
 	bool SendUMPMessage (uint32_t* UMPData);
 
@@ -258,6 +263,9 @@ public:
 
 	//! Returns last error code
 	int GetLastError(void);
+
+	//! Activate/deactivate automatic session initiator restart when remote node has sent a BYE message
+	void ReactivateSessionInitiatorOnBYE(bool Activate);
 
 private:
 	// Callback data
@@ -287,6 +295,8 @@ private:
 
 	bool ConnectionLost;				// Set to 1 when connection is lost after a session has opened successfully
 	bool PeerClosedSession;				// Set to 1 when we receive a BY message on a opened session
+	unsigned int BYEReasonCode;			// Reason code received in BY message
+	bool AutoRestartInitiatorOnBYE;		// Automatically relaunch the session initiator when a BYE is received from remote partner
 
 	unsigned int InviteCount;		// Number of invitation messages sent
 	int TimeOutRemote;				// Counter to detect loss of remote node (reset when PING is received)
@@ -303,9 +313,6 @@ private:
 
 	void(*ConnectionCallback)(const char* EndpointName, unsigned int size);
 	void(*DisconnectCallback)();
-
-	//! Release UDP sockets used by the handler
-	void CloseSockets(void);
 
 	//! Sends NetUMP invitation (simple invitation, no authentication)
 	//! Invitation is sent to declared partner

@@ -58,6 +58,13 @@
 
 31/05/2026
   - added method to identify last error and allow client to adapt behavior (like when invitation is refused)
+
+28/08/2026
+  - added method RemotePeerClosedSessionReason to retrieve the BYE reason code if remote partner closes the session
+  - bug corrected : when a BY was received, the class was acting like if communication was lost by ping timeout.
+  - added option to activate/deactive automatic restart of session initiator if communication is lost with remote partner
+  - some code cleanup (added this-> to member assignation to respect C++ good coding rules)
+  - removed local CloseSockets() method, replaced by direct call to CloseSocket
 */
 
 #include "NetUMP.h"
@@ -79,65 +86,58 @@ static unsigned int UMPSize [16] = {1, 1, 1, 2, 2, 4, 1, 1, 2, 2, 2, 3, 3, 4, 4,
 
 CNetUMPHandler::CNetUMPHandler (TUMPDataCallback CallbackFunc, void* UserInstance)
 {
-	UMPSocket = INVALID_SOCKET;
-	SessionState=SESSION_CLOSED;
+	this->UMPSocket = INVALID_SOCKET;
+	this->SessionState=SESSION_CLOSED;
 
-	RemoteIP = 0;
-	RemoteUDPPort = 0;
-	LocalUDPPort = 0;
-	SocketLocked=true;
+	this->RemoteIP = 0;
+	this->RemoteUDPPort = 0;
+	this->LocalUDPPort = 0;
+	this->SocketLocked=true;
 	strcpy((char*)&this->EndpointName[0], "NetUMP");
 	strcpy((char*)&this->ProductInstanceID[0], "DefaultID");
 
-	SessionPartnerIP=0;
-	SessionPartnerPort=0;
-	IsInitiatorNode=true;
-	TimeOutRemote=TIMEOUT_RESET;
-	InviteCount=0;
+	this->SessionPartnerIP=0;
+	this->SessionPartnerPort=0;
+	this->IsInitiatorNode=true;
+	this->TimeOutRemote=TIMEOUT_RESET;
+	this->InviteCount=0;
+	this->AutoRestartInitiatorOnBYE = false;
 
-	ConnectionLost = false;
-	PeerClosedSession = false;
+	this->ConnectionLost = false;
+	this->PeerClosedSession = false;
 
-	LastReceivedUMPCounter = 0;
-	PINGDelayCounter = 0;
-	PINGIdCounter = 0;
+	this->LastReceivedUMPCounter = 0;
+	this->PINGDelayCounter = 0;
+	this->PINGIdCounter = 0;
 
-	ResetFECMemory();
-	SelectErrorCorrectionMode (ERROR_CORRECTION_FEC);
+	this->ResetFECMemory();
+	this->SelectErrorCorrectionMode (ERROR_CORRECTION_FEC);
 	//SelectErrorCorrectionMode (ERROR_CORRECTION_NONE);
 
 	// Reset FIFO with host
-	UMP_FIFO_TO_NET.ReadPtr = 0;
-	UMP_FIFO_TO_NET.WritePtr = 0;
+	this->UMP_FIFO_TO_NET.ReadPtr = 0;
+	this->UMP_FIFO_TO_NET.WritePtr = 0;
 
 	// Reset timer
-	TimeCounter=0;
-	TimerRunning=false;
-	TimerEvent=false;
-	EventTime=0;
+	this->TimeCounter=0;
+	this->TimerRunning=false;
+	this->TimerEvent=false;
+	this->EventTime=0;
 
-	UMPCallback=CallbackFunc;
-	ClientInstance=UserInstance;
+	this->UMPCallback=CallbackFunc;
+	this->ClientInstance=UserInstance;
 
-	ConnectionCallback = 0;
-	DisconnectCallback = 0;
+	this->ConnectionCallback = 0;
+	this->DisconnectCallback = 0;
 }  // CNetUMPHandler::CNetUMPHandler
 // -----------------------------------------------------
 
 CNetUMPHandler::~CNetUMPHandler (void)
 {
-	CloseSession();
-	CloseSockets();
+	this->CloseSession();
+	CloseSocket(&UMPSocket);
 }  // CNetUMPHandler::~CNetUMPHandler
 // -----------------------------------------------------
-
-void CNetUMPHandler::CloseSockets(void)
-{
-	// Close the UDP sockets
-	if (UMPSocket!=INVALID_SOCKET)
-		CloseSocket(&UMPSocket);
-}  // CNetUMPHandler::CloseSockets
-//---------------------------------------------------------------------------
 
 void CNetUMPHandler::SetEndpointName (char* Name)
 {
@@ -163,7 +163,7 @@ int CNetUMPHandler::InitiateSession(unsigned int DestIP,
 	bool SocketOK;
 
 	// Close the UDP socket, just in case it was still opened...
-	CloseSockets();
+	CloseSocket(&UMPSocket);
 
 	this->RemoteIP=DestIP;
 	this->RemoteUDPPort=DestPort;
@@ -172,7 +172,7 @@ int CNetUMPHandler::InitiateSession(unsigned int DestIP,
 	SocketOK=CreateUDPSocket (&UMPSocket, LocalPort, false);
 	if (SocketOK == false) return -1;
 
-	ConnectionLost = false;
+	this->ConnectionLost = false;
 	this->InviteCount=0;
 	this->TimeOutRemote=TIMEOUT_RESET;
 	this->UMPSequenceCounter = 0;
@@ -182,16 +182,16 @@ int CNetUMPHandler::InitiateSession(unsigned int DestIP,
 	this->IsInitiatorNode=IsInitiator;
 	if (IsInitiator==false)
 	{  // Do not invite, wait from remote node to start session
-		SessionState=SESSION_WAIT_INVITE;
+		this->SessionState=SESSION_WAIT_INVITE;
 	}
 	else
 	{ // Initiate session by inviting remote node
-		SessionState=SESSION_INVITE;
-        SessionPartnerIP = RemoteIP;
-		SessionPartnerPort = RemoteUDPPort;
+		this->SessionState=SESSION_INVITE;
+        this->SessionPartnerIP = RemoteIP;
+		this->SessionPartnerPort = RemoteUDPPort;
 	}
 	this->SocketLocked=false;		// Must be last instruction after session initialization
-	PrepareTimerEvent(1);	// This will produce invitation immediately
+	this->PrepareTimerEvent(1);	// This will produce invitation immediately
 
 	return 0;
 }  // CNetUMPHandler::InitiateSession
@@ -199,14 +199,14 @@ int CNetUMPHandler::InitiateSession(unsigned int DestIP,
 
 void CNetUMPHandler::CloseSession (void)
 {
-	if (SessionState==SESSION_OPENED)
+	if (this->SessionState==SESSION_OPENED)
 	{
-		SessionState=SESSION_CLOSED;
-		SendBYECommand(BYE_USER_TERMINATED, SessionPartnerIP, SessionPartnerPort);
+		this->SessionState=SESSION_CLOSED;
+		this->SendBYECommand(BYE_USER_TERMINATED, SessionPartnerIP, SessionPartnerPort);
 		SystemSleepMillis(50);		// Give time to send the message before closing the socket
 
-		if (DisconnectCallback != 0)
-			DisconnectCallback();
+		if (this->DisconnectCallback != 0)
+			this->DisconnectCallback();
 	}
 }  // CNetUMPHandler::CloseSession
 //---------------------------------------------------------------------------
@@ -240,50 +240,48 @@ void CNetUMPHandler::RunSession (void)
 	unsigned int PayloadSize;
 	int PeerEndpointNamePtr = 0;
 	unsigned int PeerEndpointNameSize = 0;
-	uint8_t BYEReason;
 
 	// Do not process if communication layers are not ready
-	if (SocketLocked) return;
+	if (this->SocketLocked) return;
 
 	// Check if timer elapsed
-	if (TimerRunning)
+	if (this->TimerRunning)
 	{
-		if (EventTime>0)
-			EventTime--;
-		if (EventTime==0)
+		if (this->EventTime>0)
+			this->EventTime--;
+		if (this->EventTime==0)
 		{
-			TimerRunning=false;
-			TimerEvent=true;
+			this->TimerRunning=false;
+			this->TimerEvent=true;
 		}
 	}
 
 	// If no resync from remote node after 2 minutes and we are session initiator, then try to invite again the remote device
-	if (SessionState == SESSION_OPENED)
+	if (this->SessionState == SESSION_OPENED)
 	{
-		if (TimeOutRemote > 0)
-			TimeOutRemote--;
+		if (this->TimeOutRemote > 0)
+			this->TimeOutRemote--;
 
-		if (TimeOutRemote == 0)
+		if (this->TimeOutRemote == 0)
 		{  // No messages received from remote partner after timeout
-			ConnectionLost = true;
+			this->ConnectionLost = true;
 
 			// We send a BYE to inform remote partner that connection is now closed
-			SendBYECommand (BYE_TIMEOUT, SessionPartnerIP, SessionPartnerPort);
+			this->SendBYECommand (BYE_TIMEOUT, SessionPartnerIP, SessionPartnerPort);
 
-			if (IsInitiatorNode)
+			if (this->IsInitiatorNode)
 			{
-				SessionState = SESSION_CLOSED;
-				RestartSessionInitiator();
-				// TODO : use the same option as for receiving a BYE to decide if we allow the initiator to restart or the session must be closed
+				this->SessionState = SESSION_CLOSED;
+				this->RestartSessionInitiator();
 			}
 			else
 			{  // If we are not session initiator, just wait to be invited again
-				SessionState=SESSION_WAIT_INVITE;
+				this->SessionState=SESSION_WAIT_INVITE;
 			}
 
 			// Inform client application that we have closed connection
-			if (DisconnectCallback != 0)
-				DisconnectCallback();
+			if (this->DisconnectCallback != 0)
+				this->DisconnectCallback();
 		}  // Session has timed out
 	}  // Session is opened
 
@@ -352,7 +350,7 @@ void CNetUMPHandler::RunSession (void)
 							PeerEndpointNamePtr = PtrParse + 4;
 							break;
 						case BYE_COMMAND :
-							BYEReason = ReceptionBuffer[PtrParse + 2];
+							this->BYEReasonCode = ReceptionBuffer[PtrParse + 2];
 							BYEReceived = true;
 							break;
 						case INVITATION_ACCEPTED_COMMAND :
@@ -425,7 +423,7 @@ void CNetUMPHandler::RunSession (void)
 
 	if (PingReceived)
 	{
-		SendPINGReplyCommand (Ping_ID);
+		this->SendPINGReplyCommand (Ping_ID);
 	}
 
 	if (BYEReceived)
@@ -438,32 +436,33 @@ void CNetUMPHandler::RunSession (void)
 
 		if (SenderIP == SessionPartnerIP)
 		{
-			SendBYEReplyCommand (SessionPartnerIP, SessionPartnerPort);
-			if (IsInitiatorNode == false)
+			this->SendBYEReplyCommand (SessionPartnerIP, SessionPartnerPort);
+			if (this->IsInitiatorNode == false)
 			{
-				SessionState = SESSION_WAIT_INVITE;
-				SessionPartnerIP = 0;
-				SessionPartnerPort = 0;
+				this->SessionState = SESSION_WAIT_INVITE;
+				this->SessionPartnerIP = 0;
+				this->SessionPartnerPort = 0;
 			}
 			else
 			{
-				SessionState = SESSION_CLOSED;
-				// TODO : make an option to decide if session must close if a BYE is received or if it shall invite again the partner
-				RestartSessionInitiator ();		// This make the driver automatically invite again a partner which has sent a BYE
+				this->SessionState = SESSION_CLOSED;
+				if (this->AutoRestartInitiatorOnBYE)
+					this->RestartSessionInitiator ();
 			}
-			ConnectionLost = true;		// This will report information to user interface
+			//ConnectionLost = true;	
+			this->PeerClosedSession = true;
 
-			if (DisconnectCallback != 0)
-				DisconnectCallback();
+			if (this->DisconnectCallback != 0)
+				this->DisconnectCallback();
 		}
 		else
 		{  // We have to reply to a BYE even if it is not for us (but no action taken here)
-			SendBYEReplyCommand (SenderIP, SenderPort);
+			this->SendBYEReplyCommand (SenderIP, SenderPort);
 		}
 	}  // Bye received
 
 	// *** State machine manager ***
-	if (SessionState==SESSION_CLOSED)
+	if (this->SessionState==SESSION_CLOSED)
 	{
 		return;
 	}
@@ -472,7 +471,7 @@ void CNetUMPHandler::RunSession (void)
 	// Otherwise, all UMP data are sent in bursts when session opens...
 	UMPCommandSize = GenerateUMPCommand(&UMPCommand[0]);
 
-	if (SessionState==SESSION_OPENED)
+	if (this->SessionState==SESSION_OPENED)
 	{  // Send UMP data if something in the FIFO
 		if (UMPCommandSize>0)
 		{
@@ -485,34 +484,34 @@ void CNetUMPHandler::RunSession (void)
 		}
 
 		// Send PING message if nothing has been sent since more than 10 seconds
-		PINGDelayCounter++;
-		if (PINGDelayCounter>10000)
+		this->PINGDelayCounter++;
+		if (this->PINGDelayCounter>10000)
 		{
-			PINGDelayCounter = 0;
-			PINGIdCounter++;
+			this->PINGDelayCounter = 0;
+			this->PINGIdCounter++;
 
-			SendPINGCommand (PINGIdCounter);
+			this->SendPINGCommand (PINGIdCounter);
 		}
 		return;
 	}
 
 	// We are inviting remote node
-	if (SessionState==SESSION_INVITE)
+	if (this->SessionState==SESSION_INVITE)
 	{
 		if (InvitationAccepted)
 		{
 			SessionPartnerIP = SenderIP;		// TODO : what happens if we receive accidentally an INVITATION ACCEPTED from another device while we are inviting one ?
 			SessionState=SESSION_OPENED;
-			ResetFECMemory();
+			this->ResetFECMemory();
 
-			if (ConnectionCallback != 0)
-				ConnectionCallback((const char*)(ReceptionBuffer + PeerEndpointNamePtr), PeerEndpointNameSize);
+			if (this->ConnectionCallback != 0)
+				this->ConnectionCallback((const char*)(ReceptionBuffer + PeerEndpointNamePtr), PeerEndpointNameSize);
 			return;
 		}
 
-		if (TimerRunning==false)
+		if (this->TimerRunning==false)
 		{
-			if (TimerEvent)
+			if (this->TimerEvent)
 			{  // Previous attempt has timed out
 				/*
 				if (InviteCount>12)
@@ -524,8 +523,8 @@ void CNetUMPHandler::RunSession (void)
 				*/
 				{
 					this->SendInvitationCommand();
-					PrepareTimerEvent(1000);  // Wait one second before sending a new invitation
-					InviteCount++;
+					this->PrepareTimerEvent(1000);  // Wait one second before sending a new invitation
+					this->InviteCount++;
 					return;
 				}
 			}
@@ -534,7 +533,7 @@ void CNetUMPHandler::RunSession (void)
 		return;
 	}  // Session state is SESSION_INVITE
 
-	if (SessionState==SESSION_WAIT_INVITE)
+	if (this->SessionState==SESSION_WAIT_INVITE)
 	{
 		return;
 	}
@@ -543,10 +542,10 @@ void CNetUMPHandler::RunSession (void)
 
 void CNetUMPHandler::PrepareTimerEvent (unsigned int TimeToWait)
 {
-	TimerRunning=false;			// Lock the timer until preparation is done
-	TimerEvent=false;			// Signal no event
-	EventTime=TimeToWait;
-	TimerRunning=true;			// Restart the timer
+	this->TimerRunning=false;			// Lock the timer until preparation is done
+	this->TimerEvent=false;			// Signal no event
+	this->EventTime=TimeToWait;
+	this->TimerRunning=true;			// Restart the timer
 }  // CNetUMPHandler::PrepareTimerEvent
 //---------------------------------------------------------------------------
 
@@ -565,19 +564,19 @@ void CNetUMPHandler::RestartSessionInitiator (void)
 
 int CNetUMPHandler::GetSessionStatus (void)
 {
-	if (SessionState==SESSION_CLOSED) return 0;
-	if (SessionState==SESSION_OPENED) return 3;
-	if (SessionState==SESSION_INVITE) return 1;
-	if (SessionState == SESSION_WAIT_INVITE) return 2;
+	if (this->SessionState==SESSION_CLOSED) return 0;
+	if (this->SessionState==SESSION_OPENED) return 3;
+	if (this->SessionState==SESSION_INVITE) return 1;
+	if (this->SessionState == SESSION_WAIT_INVITE) return 2;
 	return 4;
 }  // CNetUMPHandler::::GetSessionStatus
 //--------------------------------------------------------------------------
 
 bool CNetUMPHandler::ReadAndResetConnectionLost (void)
 {
-	if (ConnectionLost==false) return false;
+	if (this->ConnectionLost==false) return false;
 
-	ConnectionLost=false;
+	this->ConnectionLost=false;
 	return true;
 }  // CNetUMPHandler::ReadAndResetConnectionLost
 //--------------------------------------------------------------------------
@@ -586,11 +585,23 @@ bool CNetUMPHandler::RemotePeerClosedSession (void)
 {
 	bool ReadValue;
 
-	ReadValue = PeerClosedSession;
-	PeerClosedSession = false;
+	ReadValue = this->PeerClosedSession;
+	this->PeerClosedSession = false;
 
 	return ReadValue;
 }  // CNetUMPHandler::RemotePeerClosedSession
+//--------------------------------------------------------------------------
+
+int CNetUMPHandler::RemotePeerClosedSessionReason(void)
+{
+	bool ReadValue;
+
+	ReadValue = this->PeerClosedSession;
+	this->PeerClosedSession = false;
+
+	if (ReadValue == false) return -1;
+	else return this->BYEReasonCode;
+}  // CNetUMPHandler::RemotePeerClosedSessionReason
 //--------------------------------------------------------------------------
 
 bool CNetUMPHandler::SendUMPMessage (uint32_t* UMPData)
@@ -600,7 +611,7 @@ bool CNetUMPHandler::SendUMPMessage (uint32_t* UMPData)
 	unsigned int MT;
 	unsigned int MsgSize;
 
-	if (SessionState!=SESSION_OPENED) return false;		// Avoid filling the FIFO when nothing can be sent
+	if (this->SessionState!=SESSION_OPENED) return false;		// Avoid filling the FIFO when nothing can be sent
 	MT = UMPData[0]>>28;
 	MsgSize = UMPSize[MT];
 
@@ -886,4 +897,10 @@ void CNetUMPHandler::SetDisconnectCallback(void(*CallbackFunc)())
 {
 	this->DisconnectCallback = CallbackFunc;
 }  // CNetUMPHandler::SetDisconnectCallback
+//--------------------------------------------------------------------------
+
+void CNetUMPHandler::ReactivateSessionInitiatorOnBYE(bool Activate)
+{
+	this->AutoRestartInitiatorOnBYE = Activate;
+}  // CNetUMPHandler::ReactivateSessionInitiatorOnBYE
 //--------------------------------------------------------------------------
