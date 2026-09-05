@@ -65,6 +65,11 @@
   - added option to activate/deactive automatic restart of session initiator if communication is lost with remote partner
   - some code cleanup (added this-> to member assignation to respect C++ good coding rules)
   - removed local CloseSockets() method, replaced by direct call to CloseSocket
+ 
+05/09/2026
+   - corrected two major bugs which were leading to stack corruption !
+        - GenerateUMPCommand could generate packets of 66 words while buffer was 65 words. Limit now complies to MMA specification (64x 32-bit words in one 0xFF command)
+        - tranmission buffer in RunSession() was 65 words long. FEC can put up to 5 messages in the packet, thus 325 words in total, leading to a serious buffer overflow
 */
 
 #include "NetUMP.h"
@@ -227,7 +232,7 @@ void CNetUMPHandler::RunSession (void)
 	unsigned char ReceptionBuffer[1024];
 	bool InvitationAccepted;
 	unsigned int UMPCommandSize;
-	uint32_t UMPCommand[65];		// Maximum length of UMP Command is 64 words + command header
+	uint32_t UMPCommand[350];      // Min 5x65 words when FEC is active
 	sockaddr_in AdrEmit;
 	bool InvitationReceived;
 	bool BYEReceived;
@@ -642,7 +647,7 @@ unsigned int CNetUMPHandler::GenerateUMPCommand (uint32_t* UMPCommand)
 	unsigned int TempPtr;
 	unsigned int FECIndex;
 	unsigned int NewFECSlot;
-	uint32_t NewUMPCommand[65];
+	uint32_t NewUMPCommand[65];         // UMP data command is 64 32-bit words + header word (command 0xFF)
 	unsigned int NewCommandWordCount;
 	bool MessageLimit;
 	uint32_t NewUMP;
@@ -665,7 +670,7 @@ unsigned int CNetUMPHandler::GenerateUMPCommand (uint32_t* UMPCommand)
 		NewUMP = UMP_FIFO_TO_NET.FIFO[TempPtr];
 		NewLength = UMPSize[NewUMP>>28];		// Get size from MT field
 
-		if (NewCommandWordCount+NewLength<65)
+		if (NewCommandWordCount+NewLength<64)
 		{
 			NewUMPCommand[NewCommandWordCount+1] = htonl (NewUMP);		// Store first word
 			NewCommandWordCount+=1;
